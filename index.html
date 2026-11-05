@@ -112,6 +112,13 @@ h1 { font-size: 1.3rem; margin: 0; text-wrap: balance }
 .mt thead th, .mt tbody th { font-weight: 700; color: var(--ink) }
 .mt td.num { font-family: var(--num); font-variant-numeric: tabular-nums; text-align: right; color: var(--ink) }
 .notes { margin: 4px 0 0; padding-left: 1.2em; font-size: .76rem }
+/* 次のカードごとの勝率 */
+.nx { display: grid; gap: 6px; margin-top: 4px; justify-items: start }
+.nx .mt td:first-child span + span { margin-left: .3em }
+.nx .mt td.num.up { color: var(--good) } .nx .mt td.num.down { color: var(--bad) }
+/* レンジの保存と呼び出し */
+.rsave { display: grid; gap: 6px; width: 100% }
+.rsave .item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px }
 @media (prefers-reduced-motion: reduce) { .bar i { transition: none } }
 </style>
 
@@ -137,6 +144,8 @@ h1 { font-size: 1.3rem; margin: 0; text-wrap: balance }
     <button class="btn" id="add">プレイヤーを足す</button>
     <button class="btn" id="clear">カードを全部外す</button>
     <button class="btn primary" id="run">計算する</button>
+    <button class="btn" id="share">この場面を共有</button>
+    <span class="sub" id="sharemsg" aria-live="polite"></span>
   </div>
   <div class="status" id="status" aria-live="polite"></div>
 
@@ -276,7 +285,11 @@ function ploFeatures(h) {
   f[25] = groups >= 2; f[26] = hiConn;
   return f;
 }
-function ploScore(h, coef) { const f = ploFeatures(h); let s = 0; for (let i = 0; i < coef.length; i++) s += coef[i] * f[i]; return s + ploRundown(h); }
+// coef が特徴より1つ長い時(PLO5)は、最後の係数をランダウンの形(0〜1)に掛ける。同じ長さの時(PLO4)は決めた加点を足す
+function ploScore(h, coef) {
+  const f = ploFeatures(h); let s = 0; for (let i = 0; i < f.length; i++) s += coef[i] * f[i];
+  return s + (coef.length > f.length ? coef[f.length] * ploRundown(h) / RUNDOWN_BONUS : ploRundown(h));
+}
 // ランダウンの加点。ランダムな1手への勝率だけで並べると、実際によく参加するランダウン(JT98ds など)が下に沈むので足す。
 // 5段の幅に違う数字が4つ以上ある形が対象。隙間なしは1、ワンギャップは0.6。幅の一番上の数字が高いほど大きい(上側のランダウンを重く見る)
 const RUNDOWN_BONUS = 0.09, RUNDOWN_GAP = 0.6;
@@ -408,13 +421,16 @@ function makeJob(game, hands, board, seed, ranges) {
 // ENGINE END
 
 // 参加率の並び(ノードで事前に計算した値)。NLH_ORDER: 169種類の手を、ランダムな1手に対する勝率の高い順に並べたもの
-// PLO_FIT: 手の特徴からランダムな1手に対する勝率を当てる式の係数(coef)と、その点数の分位(q[k] = 下から k% の点)
+// PLO_FIT: 手の点数を出す式の係数(coef)と、その点数の分位(q[k] = 下から k% の点)
+// PLO4: ランダムな1手に対する勝率を手の特徴から当てた式+ランダウンの加点(実データなし)
+// PLO5(2026-11-05): ショーダウンで見えた相手の手 5,966手とランダムな手を見分ける式(ロジスティック回帰)。点数が高いほど、実際に参加されやすい手。
+//   週を半分に分けた確かめ AUC 0.724(旧 0.707)、Hero が参加したかの当てやすさ 0.868(旧 0.844、差 z=11.6)。作り方は scratchpad/plofit/fit.js
 const NLH_ORDER = [0,14,28,42,56,70,84,1,98,2,13,3,4,26,39,112,15,5,52,16,17,6,27,7,65,40,126,29,9,18,78,8,53,30,10,91,19,11,41,66,31,117,104,20,43,12,54,140,130,21,32,79,143,22,67,44,55,92,23,156,105,33,24,57,45,154,34,80,118,68,25,35,46,131,58,36,69,93,81,144,37,106,71,157,59,47,168,38,119,48,94,82,72,49,60,132,50,83,145,95,85,107,73,51,158,61,120,62,96,86,133,108,74,63,99,146,97,64,87,109,159,121,75,100,134,76,110,113,122,88,147,111,77,101,160,123,127,114,89,135,124,102,90,125,148,115,128,136,161,141,137,103,139,138,129,116,149,142,162,150,152,151,155,153,163,165,164,166,167];
 const PLO_FIT = {
   plo4: { coef: [0.303959,-0.005388,-0.00986,-0.006628,-0.003158,0.000469,0.080666,0.106816,0.086448,0.070709,0.047037,-0.011586,0.071609,0.004584,0.032287,-0.008379,-0.011867,0.004507,0.005674,0.008767,0.007949,0.006198,0.004053,-0.003598,-0.007749,-0.000633,-0.008726],
     q: [0.26909,0.39006,0.40062,0.40723,0.4122,0.41725,0.42046,0.42403,0.42657,0.42933,0.43211,0.43487,0.43665,0.43872,0.44105,0.44306,0.44453,0.44672,0.44877,0.44991,0.45181,0.45343,0.45521,0.45691,0.45809,0.46004,0.46147,0.463,0.46441,0.46609,0.46738,0.46891,0.47036,0.47153,0.47277,0.47402,0.47551,0.47712,0.47799,0.47888,0.48049,0.48152,0.48276,0.48449,0.48583,0.48667,0.48778,0.48916,0.49051,0.49209,0.49335,0.49442,0.49577,0.49721,0.4986,0.50023,0.50201,0.503,0.50437,0.50598,0.50776,0.50913,0.51051,0.51207,0.51341,0.51504,0.51712,0.51856,0.51979,0.52169,0.52354,0.52514,0.52689,0.52843,0.5309,0.53283,0.53497,0.53687,0.53977,0.54212,0.54447,0.54781,0.55055,0.55392,0.55725,0.56013,0.56424,0.56826,0.57319,0.57934,0.58618,0.59425,0.60156,0.60902,0.61805,0.62803,0.63794,0.64766,0.66183,0.68101,0.84633] },
-  plo5: { coef: [0.315082,-0.014775,-0.01354,-0.007748,-0.001998,0.002822,0.071207,0.079754,0.063131,0.052647,0.03382,-0.00749,0.033591,-0.036839,0.015028,-0.00999,-0.010451,0.009152,0.00569,0.003012,0.002789,0.003041,0.002066,-0.002652,-0.004411,0.015028,-0.007135],
-    q: [0.26737,0.38798,0.40831,0.41698,0.42317,0.42785,0.43183,0.4349,0.43842,0.44101,0.4437,0.44595,0.44835,0.45041,0.45232,0.45409,0.45601,0.45781,0.45941,0.46116,0.46273,0.46408,0.46566,0.46726,0.46852,0.4697,0.47132,0.47265,0.47378,0.47501,0.47662,0.47795,0.4791,0.48043,0.4817,0.48287,0.48408,0.48538,0.48666,0.48791,0.4891,0.49033,0.49153,0.49275,0.49407,0.49544,0.4966,0.49767,0.49888,0.50016,0.50143,0.50271,0.5039,0.50529,0.50655,0.50772,0.50891,0.51031,0.51164,0.51305,0.51439,0.51584,0.51712,0.51859,0.52013,0.52163,0.52324,0.52498,0.52639,0.52795,0.52974,0.53138,0.53329,0.53517,0.5368,0.53909,0.54091,0.54328,0.54538,0.54739,0.55001,0.55246,0.5551,0.5578,0.56089,0.56433,0.56728,0.57088,0.57462,0.57844,0.58256,0.58685,0.59194,0.59735,0.60315,0.60947,0.61728,0.62601,0.63705,0.6553,0.76554] },
+  plo5: { coef: [-2.812837,-0.137635,-0.175038,-0.079128,0.015052,0.053954,0.493845,0.487793,0.535047,0.368423,0.024652,-0.284267,0.896393,0.000493,0.241506,-0.079736,-0.796368,0.711256,0.319902,0.277971,0.220108,0.134925,0.072033,-0.09648,-0.104335,0.241506,0.014186,0.05913],
+    q: [-3.31135,-2.15085,-1.86231,-1.62519,-1.50963,-1.4388,-1.38654,-1.34448,-1.30343,-1.26777,-1.23603,-1.20075,-1.16973,-1.14067,-1.1091,-1.0822,-1.05762,-1.03108,-1.00609,-0.98596,-0.96477,-0.94213,-0.92259,-0.90024,-0.88269,-0.86218,-0.8428,-0.82286,-0.80524,-0.78707,-0.76889,-0.74997,-0.73036,-0.7135,-0.69334,-0.67707,-0.65653,-0.634,-0.61659,-0.59843,-0.5808,-0.56038,-0.53849,-0.51932,-0.50107,-0.4806,-0.45874,-0.44074,-0.42321,-0.40473,-0.38314,-0.36299,-0.34201,-0.32237,-0.30269,-0.28154,-0.26112,-0.24063,-0.22199,-0.19983,-0.17512,-0.15471,-0.13309,-0.11012,-0.08583,-0.05921,-0.03453,-0.00805,0.02003,0.04608,0.07284,0.10045,0.12899,0.15435,0.18397,0.20952,0.23657,0.26666,0.29425,0.32483,0.3554,0.38506,0.41642,0.4529,0.48765,0.52795,0.56589,0.60601,0.65057,0.69558,0.74418,0.80081,0.86352,0.93962,1.02887,1.1224,1.24082,1.42312,1.6795,1.95562,3.63935] },
 };
 
 // ODDS START —— 自分の手の「役ができる率」(勝率以外の質問)
@@ -573,7 +589,7 @@ function cellsFromPct(pct) {
 function newRangeCfg() { return { nlh: { pct: 20, cells: cellsFromPct(20) }, plo: { pct: 30, aa: false, kk: false, ds: false, as: false, run4: false, notrips: false } }; }
 
 const state = { game: "nlh", board: [null, null, null, null, null], hands: [[null, null], [null, null]], modes: ["hand", "hand"], rcfg: [null, null], gridOpen: [], rinfoOpen: [],
-  active: { kind: "p", p: 0, i: 0 }, results: null, madeOpen: false };
+  rpanel: [], active: { kind: "p", p: 0, i: 0 }, results: null, madeOpen: false, nextOpen: false, nextSort: "rank" };
 try { const g = localStorage.getItem("eqcalc-game"); if (g && GAMES[g]) state.game = g; } catch (e) {}
 const $ = id => document.getElementById(id);
 
@@ -621,7 +637,7 @@ function renderAll() {
     }
     if (state.hands.length > 2 && p > 0) {
       const del = document.createElement("button"); del.className = "btn"; del.textContent = "消す";
-      del.onclick = () => { for (const a of [state.hands, state.modes, state.rcfg, state.gridOpen, state.rinfoOpen]) a.splice(p, 1); state.active = null; changed(); };
+      del.onclick = () => { for (const a of [state.hands, state.modes, state.rcfg, state.gridOpen, state.rinfoOpen, state.rpanel]) a.splice(p, 1); state.active = null; changed(); };
       tools.appendChild(del);
     }
     head.appendChild(tools); box.appendChild(head);
@@ -634,7 +650,10 @@ function renderAll() {
     }
     const res = document.createElement("div"); res.className = "res"; res.id = "res-" + p;
     box.appendChild(res);
-    if (p === 0) { const md = document.createElement("div"); md.className = "made"; md.id = "made"; box.appendChild(md); }
+    if (p === 0) {
+      const md = document.createElement("div"); md.className = "made"; md.id = "made"; box.appendChild(md);
+      const nx = document.createElement("div"); nx.className = "made"; nx.id = "next"; box.appendChild(nx);
+    }
     P.appendChild(box);
   });
   $("add").disabled = state.hands.length >= (state.game === "nlh" ? 9 : 6);
@@ -697,6 +716,21 @@ function rangeEl(p) {
     wrap.appendChild(chips);
     sl.oninput = () => { cfg.pct = +sl.value; paintRange(p); runSoon(); };
   }
+  // 名前を付けて保存・呼び出す(ゲームごとに、この端末のブラウザの中に残す)
+  const sv = document.createElement("div"); sv.className = "row";
+  for (const [mode, label] of [["save", "このレンジを保存"], ["load", "保存したレンジを呼び出す"]]) {
+    const b = document.createElement("button"); b.className = "btn"; b.textContent = label;
+    b.setAttribute("aria-expanded", String(state.rpanel[p] === mode));
+    b.onclick = () => {
+      state.rpanel[p] = state.rpanel[p] === mode ? null : mode; render();
+      const inp = $("rname-" + p); if (inp) inp.focus();
+    };
+    sv.appendChild(b);
+  }
+  wrap.appendChild(sv);
+  if (state.rpanel[p]) wrap.appendChild(savePanel(p));
+  const rmsg = document.createElement("div"); rmsg.className = "sub"; rmsg.id = "rs-" + p; rmsg.setAttribute("aria-live", "polite");
+  wrap.appendChild(rmsg);
   // どんな手が入っているかを見る欄(開いている時だけ数える)
   const det = document.createElement("details"); det.className = "rinfo";
   det.open = !!state.rinfoOpen[p];
@@ -760,7 +794,7 @@ function nlhRangeText(cells) {
   if (!on.length) return "手が1つも選ばれていません。";
   const kind = i => { const r = Math.floor(i / 13), c = i % 13; return r === c ? 0 : r < c ? 1 : 2; };
   const out = [["ペア", []], ["スーテッド", []], ["オフスート", []]];
-  for (const i of [...on].sort((a, b) => a - b)) out[kind(i)][1].push(nlhClassName(i));
+  for (const i of on) out[kind(i)][1].push(nlhClassName(i));
   return out.filter(x => x[1].length).map(([nm, l]) => `<div>${nm}(${l.length}種類): <span class="hands">${l.join(" ")}</span></div>`).join("")
     + `<div>並び順は、ランダムな1手に対する勝率の高い順です。</div>`;
 }
@@ -796,12 +830,174 @@ function ploRangeText(p) {
     html = `<div>このレンジの手の内訳(ランダムに作った手のうち、条件に合った${got.length}手で数えています)</div>
       <ul class="notes"><li>AAを含む手: ${f("aa")}</li><li>ペアを含む手: ${f("pair")}</li><li>ダブルスーテッド: ${f("ds")}、シングルスーテッド: ${f("ss")}</li>
       <li>Aのスーテッドを含む手: ${f("as")}</li><li>ランダウン(ワンギャップ含む): ${f("run")}</li></ul>
-      <div>強い側の手の例: <span class="hands">${pick(sorted.slice(0, half), 6)}</span></div>
+      <div>上位側の手の例: <span class="hands">${pick(sorted.slice(0, half), 6)}</span></div>
       <div>境目に近い手の例: <span class="hands">${pick(sorted.slice(-Math.max(6, Math.ceil(sorted.length / 20))), 6)}</span></div>
-      <div>並び順は、ランダムな1手に対する勝率に、ランダウンの加点(上側ほど大きい)を足した点の高い順です。</div>`;
+      <div>${state.game === "plo5" ? "手の例と「上位◯%」の並び順は、作者が記録した PLO5 の対戦でショーダウンまで行った約6,000手をもとに、参加されやすい手から順に並べたものです。" : "手の例と「上位◯%」の並び順は、ランダムな1手に対する勝率に、ランダウンの加点を足した点の高い順です。加点は、数字が大きい側のランダウンほど大きくしています。"}</div>`;
   }
   infoCache.set(key, html);
   return html;
+}
+
+// ---- レンジを短い文字にする(URL の共有と、名前を付けた保存の両方で使う)
+// ホールデム: 参加率なら "p20"、マスで選んだ手なら "AA-KK-AKs"(手なしは "none")。PLO: "p30" の後ろに条件を2文字ずつ("p20ds")
+const PLO_FLAGS = [["aa", "aa"], ["kk", "kk"], ["ds", "ds"], ["as", "as"], ["run4", "rn"], ["notrips", "nt"]];
+let NAME2IDX = null;
+function rangeCode(game, rc) {
+  if (game === "nlh") {
+    const c = rc.nlh;
+    if (c.pct != null) return "p" + c.pct;
+    const names = NLH_ORDER.filter(i => c.cells[i]).map(nlhClassName);
+    return names.length ? names.join("-") : "none";
+  }
+  const c = rc.plo;
+  return "p" + c.pct + PLO_FLAGS.filter(([k]) => c[k]).map(([, s]) => s).join("");
+}
+// 読めた時だけ rc を書き換えて true を返す
+function applyRangeCode(game, rc, code) {
+  code = String(code == null ? "" : code);
+  if (game === "nlh") {
+    const m = /^p(\d{1,3})$/.exec(code);
+    if (m) { const v = Math.min(100, Math.max(1, +m[1])); rc.nlh = { pct: v, cells: cellsFromPct(v) }; return true; }
+    if (!NAME2IDX) { NAME2IDX = {}; for (let i = 0; i < 169; i++) NAME2IDX[nlhClassName(i).toUpperCase()] = i; }
+    const cells = new Uint8Array(169);
+    if (code !== "none") for (const nm of code.split("-")) { const i = NAME2IDX[nm.toUpperCase()]; if (i == null) return false; cells[i] = 1; }
+    rc.nlh = { pct: null, cells };
+    return true;
+  }
+  const m = /^p(\d{1,3})((?:[a-z]{2})*)$/.exec(code);
+  if (!m) return false;
+  const c = { pct: Math.min(100, Math.max(1, +m[1])) }, fl = m[2].match(/../g) || [];
+  for (const [k, s] of PLO_FLAGS) c[k] = fl.includes(s);
+  rc.plo = c;
+  return true;
+}
+function rangeDesc(game, code) {
+  const m = /^p(\d{1,3})/.exec(code);
+  if (game === "nlh") return m ? `上位 ${m[1]}%` : code === "none" ? "手なし" : `マスで選んだ手(${code.split("-").length}種類)`;
+  const rc = newRangeCfg(); if (!applyRangeCode(game, rc, code)) return "";
+  const conds = PLO_CHIPS.filter(([k]) => rc.plo[k]).map(([, l]) => l);
+  return (rc.plo.pct >= 100 ? "全部の手" : `上位 ${rc.plo.pct}%`) + (conds.length ? "・" + conds.join("・") : "");
+}
+
+// ---- レンジに名前を付けて保存する(ゲームごとに localStorage へ。使えない端末では null を返す)
+const RS_KEY = g => "eqcalc-ranges-" + g;
+function rsList(g) {
+  try { localStorage.setItem("eqcalc-test", "1"); localStorage.removeItem("eqcalc-test"); } catch (e) { return null; }
+  try {
+    const v = JSON.parse(localStorage.getItem(RS_KEY(g)) || "[]");
+    return Array.isArray(v) ? v.filter(x => x && typeof x.name === "string" && typeof x.code === "string") : [];
+  } catch (e) { return []; }
+}
+function rsWrite(g, list) { try { localStorage.setItem(RS_KEY(g), JSON.stringify(list)); return true; } catch (e) { return false; } }
+function setRmsg(p, t) { const el = $("rs-" + p); if (el) el.textContent = t; }
+function savePanel(p) {
+  const g = state.game, box = document.createElement("div"); box.className = "rsave";
+  const note = t => { const d = document.createElement("div"); d.className = "sub"; d.textContent = t; box.appendChild(d); };
+  const list = rsList(g);
+  if (list == null) { note("この端末では保存できません。ブラウザの設定で、サイトのデータの保存が止められている可能性があります。"); return box; }
+  if (state.rpanel[p] === "save") {
+    const row = document.createElement("div"); row.className = "item"; row.style.width = "100%";
+    const inp = document.createElement("input"); inp.className = "txt"; inp.id = "rname-" + p; inp.maxLength = 30; inp.autocomplete = "off";
+    inp.placeholder = "名前 例: よく会うゆるい人"; inp.setAttribute("aria-label", "保存するレンジの名前");
+    const ok = document.createElement("button"); ok.className = "btn"; ok.textContent = "この名前で保存";
+    const doSave = () => {
+      const name = inp.value.trim().slice(0, 30);
+      if (!name) { setRmsg(p, "名前を入れてください。"); return; }
+      const cur = rsList(g) || [], code = rangeCode(g, state.rcfg[p]), i = cur.findIndex(x => x.name === name);
+      if (i >= 0) cur[i].code = code; else cur.push({ name, code });
+      if (!rsWrite(g, cur)) { setRmsg(p, "この端末では保存できません。"); return; }
+      inp.value = ""; state.rpanel[p] = null; render();
+      setRmsg(p, i >= 0 ? `「${name}」を今のレンジで上書きしました。` : `「${name}」を保存しました。`);
+    };
+    ok.onclick = doSave;
+    inp.onkeydown = ev => { if (ev.key === "Enter") doSave(); };
+    row.append(inp, ok); box.appendChild(row);
+    note(`保存先は、この端末のブラウザの中です。${GAMES[g].name}のレンジとして残ります。同じ名前で保存すると、前のレンジを上書きします。`);
+    return box;
+  }
+  if (!list.length) { note(`${GAMES[g].name}で保存したレンジは、まだありません。「このレンジを保存」で名前を付けて残せます。`); return box; }
+  note("名前を押すと、そのレンジに切り替わります。");
+  for (const it of list) {
+    const row = document.createElement("div"); row.className = "item";
+    const b = document.createElement("button"); b.className = "chip"; b.textContent = it.name;
+    b.onclick = () => {
+      const rc = state.rcfg[p] || newRangeCfg();
+      if (!applyRangeCode(g, rc, it.code)) { setRmsg(p, `「${it.name}」は読み込めませんでした。`); return; }
+      state.rcfg[p] = rc; state.rpanel[p] = null;
+      if (g === "nlh" && rc.nlh.pct == null) state.gridOpen[p] = true;
+      changed(); setRmsg(p, `「${it.name}」を呼び出しました。`);
+    };
+    const d = document.createElement("span"); d.className = "sub"; d.textContent = rangeDesc(g, it.code);
+    const del = document.createElement("button"); del.className = "btn"; del.textContent = "消す";
+    del.setAttribute("aria-label", `「${it.name}」を消す`);
+    del.onclick = () => {
+      const cur = (rsList(g) || []).filter(x => x.name !== it.name);
+      if (!rsWrite(g, cur)) { setRmsg(p, "この端末では保存できません。"); return; }
+      render(); setRmsg(p, `「${it.name}」を消しました。`);
+    };
+    row.append(b, d, del); box.appendChild(row);
+  }
+  return box;
+}
+
+// ---- URL で場面を共有する(# の後ろに今の状態を入れる)
+// 例: #g=plo4&h=AsAhKdKc.r&b=Th7c2h&r1=p20ds  手札は2文字ずつ、空いた枠は "__"、レンジの人は "r"
+function cardsCode(arr) { let s = arr.map(c => c == null ? "__" : RANKS[c >> 2] + SUITS[c & 3]).join(""); while (s.endsWith("__")) s = s.slice(0, -2); return s; }
+function hashString() {
+  const parts = ["g=" + state.game, "h=" + state.hands.map((h, p) => isRange(p) ? "r" : cardsCode(h)).join(".")];
+  const b = cardsCode(state.board); if (b) parts.push("b=" + b);
+  state.hands.forEach((_, p) => { if (isRange(p) && state.rcfg[p]) parts.push(`r${p}=` + rangeCode(state.game, state.rcfg[p])); });
+  const pot = $("pot").value, bet = $("bet").value;
+  if (pot !== "10" || bet !== "10") parts.push("pot=" + encodeURIComponent(pot), "bet=" + encodeURIComponent(bet));
+  return "#" + parts.join("&");
+}
+function syncHash() { try { const h = hashString(); if (location.hash !== h) history.replaceState(null, "", h); } catch (e) {} }
+// 壊れた # でも落ちないように、読めない所は空きにする。ゲームが読めなければ何もしないで false
+function applyHash(hash) {
+  try {
+    const kv = {};
+    for (const part of String(hash).replace(/^#/, "").split("&")) {
+      const i = part.indexOf("="); if (i <= 0) continue;
+      try { kv[part.slice(0, i)] = decodeURIComponent(part.slice(i + 1)); } catch (e) {}
+    }
+    const g = kv.g; if (!Object.prototype.hasOwnProperty.call(GAMES, g)) return false;
+    const size = GAMES[g].size, maxP = g === "nlh" ? 9 : 6, seen = new Set();
+    const take = (s, n) => {
+      const out = Array(n).fill(null); s = String(s || "");
+      for (let i = 0; i < n; i++) {
+        const a = s[2 * i], b = s[2 * i + 1]; if (!a || !b) continue;
+        const r = RANKS.indexOf(a.toUpperCase()), su = SUITS.indexOf(b.toLowerCase());
+        if (r < 0 || su < 0) continue;
+        const c = r * 4 + su; if (seen.has(c)) continue;
+        seen.add(c); out[i] = c;
+      }
+      return out;
+    };
+    const board = take(kv.b, 5);
+    const parts = String(kv.h || "").split(".").slice(0, maxP); while (parts.length < 2) parts.push("");
+    const modes = parts.map((s, p) => p > 0 && s === "r" ? "range" : "hand");
+    const hands = parts.map((s, p) => modes[p] === "range" ? Array(size).fill(null) : take(s, size));
+    const rcfg = parts.map((_, p) => { if (modes[p] !== "range") return null; const rc = newRangeCfg(); applyRangeCode(g, rc, kv["r" + p]); return rc; });
+    Object.assign(state, { game: g, board, hands, modes, rcfg, gridOpen: rcfg.map(rc => !!(g === "nlh" && rc && rc.nlh.pct == null)), rinfoOpen: [], rpanel: [], active: null, results: null });
+    for (const k of ["pot", "bet"]) if (kv[k] != null && kv[k] !== "" && isFinite(+kv[k]) && +kv[k] >= 0) $(k).value = String(+kv[k]);
+    state.active = nextEmpty();
+    return true;
+  } catch (e) { return false; }
+}
+async function shareScene() {
+  syncHash();
+  const url = location.href.split("#")[0] + hashString(), say = t => { $("sharemsg").textContent = t; };
+  if (navigator.share) {
+    try { await navigator.share({ title: document.title, url }); say(""); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(url); say("URLをコピーしました。"); return; } catch (e) {}
+  try {
+    const ta = document.createElement("textarea"); ta.value = url; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove();
+    if (ok) { say("URLをコピーしました。"); return; }
+  } catch (e) {}
+  say("コピーできませんでした。アドレス欄の URL をそのまま送ってください。");
 }
 
 function setMode(p, m) {
@@ -851,12 +1047,12 @@ function put(c) {
 let runId = 0, autoTimer = null;
 // カードを変えたら少し待って自動で計算し直す(ボタンを押さなくてよい)
 function changed() {
-  state.results = null; runId++; $("status").textContent = ""; render();
+  state.results = null; runId++; $("status").textContent = ""; $("sharemsg").textContent = ""; render(); syncHash();
   clearTimeout(autoTimer); autoTimer = setTimeout(run, 250);
 }
 // レンジのスライダーやマスを動かした時: 全体は描き直さず、結果だけ消して計算し直す
 function runSoon() {
-  state.results = null; runId++; renderResults();
+  state.results = null; runId++; renderResults(); syncHash();
   clearTimeout(autoTimer); autoTimer = setTimeout(run, 250);
 }
 
@@ -897,32 +1093,40 @@ function setGame(g) {
   try { localStorage.setItem("eqcalc-game", g); } catch (e) {}
   const n = GAMES[g].size;
   const keep = g === "nlh" ? 9 : 6;
-  for (const a of [state.hands, state.modes, state.rcfg, state.gridOpen, state.rinfoOpen]) a.splice(keep);
+  for (const a of [state.hands, state.modes, state.rcfg, state.gridOpen, state.rinfoOpen, state.rpanel]) a.splice(keep);
+  state.rpanel = [];
   state.hands = state.hands.map(h => Array.from({ length: n }, (_, i) => h[i] ?? null));
   state.active = { kind: "p", p: 0, i: 0 };
   changed();
 }
 
-function run() {
-  const id = ++runId;
-  const filled = state.board.filter(c => c != null).length;
-  if (filled === 1 || filled === 2) { $("status").textContent = "ボードは 0枚・3枚(フロップ)・4枚(ターン)・5枚(リバー)のどれかにしてください。"; return; }
-  // レンジの人は、毎回レンジから手を引く
+// レンジの人は、毎回レンジから手を引く。戻り値 { ranges, notes } か、手が無い時は { err }
+function buildRanges() {
   const ranges = [], notes = [];
   for (let p = 1; p < state.hands.length; p++) {
     if (!isRange(p)) continue;
     if (state.game === "nlh") {
       const cfg = state.rcfg[p].nlh, list = [];
       for (let i = 0; i < 169; i++) if (cfg.cells[i]) list.push(...nlhClassCombos(i));
-      if (!list.length) { $("status").textContent = `${pname(p)}のレンジに手が1つもありません。参加率を上げるか、マスで手を選んでください。`; return; }
+      if (!list.length) return { err: `${pname(p)}のレンジに手が1つもありません。参加率を上げるか、マスで手を選んでください。` };
       ranges[p] = { combos: list };
     } else {
       const cfg = ploCfg(p), sh = ploShare(p);
-      if (sh === 0) { $("status").textContent = `${pname(p)}の条件に合う手がありません。条件を減らしてください。`; return; }
+      if (sh === 0) return { err: `${pname(p)}の条件に合う手がありません。条件を減らしてください。` };
       if (sh < 0.003) notes.push(`${pname(p)}の条件に合う手が少ないので、ゆっくり計算します。`);
       ranges[p] = { test: h => ploMatch(h, cfg) };
     }
   }
+  return { ranges, notes };
+}
+
+function run() {
+  const id = ++runId;
+  const filled = state.board.filter(c => c != null).length;
+  if (filled === 1 || filled === 2) { $("status").textContent = "ボードは 0枚・3枚(フロップ)・4枚(ターン)・5枚(リバー)のどれかにしてください。"; return; }
+  const br = buildRanges();
+  if (br.err) { $("status").textContent = br.err; return; }
+  const { ranges, notes } = br;
   const job = makeJob(state.game, state.hands, state.board, (Date.now() ^ 0x9e3779b9) >>> 0, ranges);
   if (job.rangeEmpty) { $("status").textContent = "相手のレンジの手が、見えているカードとすべて重なっています。レンジを広げてください。"; return; }
   const cap = GAMES[state.game].mc, t0 = performance.now();
@@ -964,7 +1168,126 @@ function resultHTML(p) {
 }
 function renderResults() {
   state.hands.forEach((_, p) => { const el = $("res-" + p); if (el) el.innerHTML = resultHTML(p); });
-  renderOdds(); renderMade();
+  renderOdds(); renderMade(); renderNext();
+}
+
+// ---- 次のカードごとの勝率(ボードが3枚か4枚の時。開いた時だけ数える)
+// 残りのカードを1枚ずつ次の枠に置いて、それぞれ今と同じ計算をする。全員の手札が入っていれば全部数え、そうでなければ1枚ごとにランダムに配る
+const NEXT_MC = { nlh: 3000, plo4: 1000, plo5: 700 };
+const nextCache = new Map(); let nextJob = null, nextTimer = null;
+function nextKey() {
+  return JSON.stringify([state.game, state.board, state.hands.map((h, p) => isRange(p) ? "r" + rangeCode(state.game, state.rcfg[p]) : h)]);
+}
+function renderNext() {
+  const el = $("next"); if (!el) return;
+  const nb = state.board.filter(c => c != null).length;
+  if (nb !== 3 && nb !== 4) { if (el.innerHTML) el.innerHTML = ""; nextJob = null; return; }
+  let det = el.querySelector("details");
+  if (!det) {
+    el.innerHTML = `<details${state.nextOpen ? " open" : ""}><summary>次のカードごとの勝率(${nb === 3 ? "ターン" : "リバー"})</summary><div class="nx"></div></details>`;
+    det = el.querySelector("details");
+    det.ontoggle = () => { state.nextOpen = det.open; renderNext(); };
+  }
+  if (!det.open) { nextJob = null; clearTimeout(nextTimer); return; }
+  const body = det.querySelector(".nx"), key = nextKey(), fin = nextCache.get(key);
+  if (fin) { paintNext(body, fin); return; }
+  if (!body.innerHTML || body.dataset.key) { body.dataset.key = ""; body.innerHTML = `<div class="sub">計算中…</div>`; }
+  if (nextJob && nextJob.key === key) return;
+  nextJob = { key, pending: true };
+  clearTimeout(nextTimer); nextTimer = setTimeout(() => startNext(key), 200);
+}
+function startNext(key) {
+  if (!nextJob || nextJob.key !== key || nextKey() !== key) return;
+  const br = buildRanges(), nb = state.board.filter(c => c != null).length;
+  const J = { key, items: [], nb, hasRange: !!(br.ranges && br.ranges.some(Boolean)), unseen: 0 };
+  nextJob = J;
+  const body = () => { const el = $("next"); return el && el.querySelector(".nx"); };
+  if (br.err) { J.err = br.err; J.finished = true; nextCache.set(key, J); const b = body(); if (b) paintNext(b, J); return; }
+  const slot = state.board.findIndex(c => c == null), used = usedSet(), seed = (Date.now() ^ 0x5bd1e995) >>> 0;
+  for (let c = 51; c >= 0; c--) {
+    if (used.has(c)) continue;
+    J.unseen++;
+    const bd = state.board.slice(); bd[slot] = c;
+    const job = makeJob(state.game, state.hands, bd, (seed + (c + 1) * 2654435761) >>> 0, br.ranges);
+    if (!job.rangeEmpty) J.items.push({ c, job, done: false });
+  }
+  J.exact = J.items.length > 0 && J.items.every(x => x.job.exact);
+  J.target = J.exact ? 0 : NEXT_MC[state.game];
+  const per = J.exact ? 2000 : state.game === "nlh" ? 60 : 15;
+  function tick() {
+    if (nextJob !== J) return;
+    if (!state.nextOpen) { nextJob = null; return; }
+    const t1 = performance.now();
+    let left = true;
+    while (left && performance.now() - t1 < 40) {
+      left = false;
+      for (const x of J.items) {
+        if (x.done) continue;
+        if (x.job.step(per) || x.job.failed || (!J.exact && x.job.trials >= J.target)) x.done = true; else left = true;
+      }
+    }
+    J.finished = J.items.every(x => x.done);
+    const b = body();
+    if (J.finished) {
+      if (nextCache.size > 50) nextCache.clear();
+      nextCache.set(key, J);
+      if (b) paintNext(b, J);
+      return;
+    }
+    if (b) {
+      const prog = J.exact ? J.items.filter(x => x.done).length / J.items.length
+        : J.items.reduce((s, x) => s + Math.min(x.job.trials, J.target), 0) / (J.target * J.items.length);
+      b.dataset.key = ""; b.innerHTML = `<div class="sub">計算中…(${Math.floor(prog * 100)}%)</div>`;
+    }
+    setTimeout(tick, 0);
+  }
+  tick();
+}
+function paintNext(body, J) {
+  const k = J.key + "|" + state.nextSort;
+  if (body.dataset.key === k) return;
+  body.dataset.key = k; body.innerHTML = nextHTML(J);
+  body.querySelectorAll(".seg button").forEach(b => b.onclick = () => { state.nextSort = b.dataset.s; paintNext(body, J); });
+}
+function nextHTML(J) {
+  if (J.err) return `<div class="sub">${J.err}</div>`;
+  const it = J.items.filter(x => x.job.trials > 0).map(x => ({ c: x.c, e: x.job.eq[0] / x.job.trials, n: x.job.trials }));
+  if (!it.length) return `<div class="sub">相手のレンジから手をうまく引けませんでした。条件をゆるめてください。</div>`;
+  const avg = it.reduce((s, x) => s + x.e, 0) / it.length;
+  const se = J.exact ? 0 : Math.sqrt(Math.max(avg * (1 - avg), 0.0025) / Math.min(...it.map(x => x.n)));
+  // 同じ数字のカードは、勝率がほぼ同じなら1行にまとめる(全部数えた時は 0.05% 以内、ランダムの時は誤差の範囲)
+  const thr = J.exact ? 0.0005 : 5 * se, groups = [];
+  for (let r = 12; r >= 0; r--) {
+    let cur = null;
+    for (const x of it.filter(x => x.c >> 2 === r).sort((a, b) => b.e - a.e)) {
+      if (cur && cur.last - x.e <= thr) { cur.cards.push(x); cur.last = x.e; }
+      else { cur = { cards: [x], last: x.e }; groups.push(cur); }
+    }
+  }
+  for (const g of groups) { const n = g.cards.reduce((s, x) => s + x.n, 0); g.e = g.cards.reduce((s, x) => s + x.e * x.n, 0) / n; }
+  if (state.nextSort === "low") groups.sort((a, b) => a.e - b.e);
+  const thr2 = J.exact ? 0.0005 : 2 * se;
+  const up = it.filter(x => x.e > avg + thr2).length, down = it.filter(x => x.e < avg - thr2).length;
+  const rows = groups.map(g => {
+    const d = (g.e - avg) * 100, cls = d * 0.01 > thr2 ? " up" : d * 0.01 < -thr2 ? " down" : "";
+    const ds = Math.abs(d) < 0.05 ? "0.0" : (d > 0 ? "+" : "−") + Math.abs(d).toFixed(1);
+    return `<tr><td>${g.cards.map(x => x.c).sort((a, b) => b - a).map(cardHTML).join("")}</td><td class="num">${pct(g.e)}</td><td class="num${cls}">${ds}</td></tr>`;
+  }).join("");
+  const sortBtn = (s, l) => `<button data-s="${s}" aria-pressed="${state.nextSort === s}">${l}</button>`;
+  const notes = [];
+  if (J.exact) notes.push(`全員の手札が入っているので、${J.nb === 3 ? "ターンのカードごとに、リバーまでの出方を全部数えました" : "リバーのカードを全部数えました"}。カードごとの勝率の平均は、上の自分の勝率と同じになります。`);
+  else {
+    notes.push(`相手のレンジか空いた枠があるので、カード1枚ごとにランダムに${J.target.toLocaleString()}回配って数えました。1枚ごとの勝率の誤差は、およそ ±${(1.96 * se * 100).toFixed(1)}%です。`);
+    notes.push("誤差の範囲に入る小さな違いは、同じ行にまとめています。");
+    if (J.hasRange) notes.push("相手のレンジによって、山に残りやすいカードは変わります。このため、カードごとの勝率の平均は、上の自分の勝率と少しずれることがあります。");
+  }
+  if (J.items.length < J.unseen) notes.push("相手のレンジの手と必ず重なるカードは、次に出ることがないので表に入れていません。");
+  notes.push("同じ数字でも、マークによって勝率が変わる時は、マーク別の行に分けています。");
+  notes.push("「平均との差」は、勝率が平均から何ポイント上がるか下がるかです。");
+  return `<div class="made-now">残りのカード${it.length}枚で平均した勝率は ${pct(avg)} です。平均より勝率が上がるカードは${up}枚、下がるカードは${down}枚です。</div>
+    <span class="seg" role="group" aria-label="並べ方">${sortBtn("rank", "数字の順")}${sortBtn("low", "勝率の低い順")}</span>
+    <table class="mt"><thead><tr><th scope="col">次のカード</th><th scope="col">自分の勝率</th><th scope="col">平均との差</th></tr></thead><tbody>${rows}</tbody></table>
+    <ul class="notes">${notes.map(t => `<li>${t}</li>`).join("")}</ul>`;
 }
 
 // ---- 自分の手の「役ができる率」
@@ -1065,8 +1388,8 @@ function renderOdds() {
   let html = `<div>コールに必要な勝率は <b>${(need * 100).toFixed(1)}%</b> です(コール ${bet} で、勝てば ${(pot + 2 * bet).toFixed(2).replace(/\.?0+$/, "")} を取る)。</div>`;
   if (state.game !== "nlh") {
     html += bet > pot + 1e-9
-      ? `<div class="warn">PLO は今のポットの額までしか打てません。相手のベット ${bet} はポット ${pot} より大きいので、額を見直してください。</div>`
-      : `<div class="sub">PLO はポットの額までしか打てないので、1回のベットへのコールに要る勝率は最大でも 33.3% です。</div>`;
+      ? `<div class="sub">入れたベットが、相手が打つ前のポットより大きくなっています。PLO では、1回のベットはその時のポットの額までです。相手にレイズされた時は、自分がこれから足す額を「相手のベット」に入れてください。それ以外の額は、全部「相手が打つ前のポット」に入れてください。こう入れると、ベットはポットの額を超えません。</div>`
+      : `<div class="sub">PLO はポットの額までしか打てないので、1回のベットにコールするのに必要な勝率は、最大でも 33.3% です。</div>`;
   }
   const r = state.results;
   if (r && r.n === state.hands.length && r.trials) {
@@ -1080,10 +1403,14 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setGame
 $("add").onclick = () => { state.hands.push(Array(GAMES[state.game].size).fill(null)); state.modes.push("hand"); state.rcfg.push(null); changed(); };
 $("clear").onclick = () => { state.board = state.board.map(() => null); state.hands = state.hands.map(h => h.map(() => null)); state.active = { kind: "p", p: 0, i: 0 }; changed(); };
 $("run").onclick = run;
-$("pot").oninput = $("bet").oninput = renderOdds;
+$("pot").oninput = $("bet").oninput = () => { renderOdds(); syncHash(); };
+$("share").onclick = shareScene;
+// アドレス欄の # を書き換えて開き直した時も、その場面にする
+window.addEventListener("hashchange", () => { if (location.hash !== hashString() && applyHash(location.hash)) changed(); });
 
-// 開いた時の例: ホールデムなら AA 対 KK(プリフロップ)
-(function sample() {
+// 開いた時: # に場面があればそれを出す。無ければ例(ホールデムなら AA 対 KK のプリフロップ)
+(function start() {
+  if (location.hash.length > 1 && applyHash(location.hash)) { render(); run(); return; }
   const C = s => RANKS.indexOf(s[0]) * 4 + SUITS.indexOf(s[1]);
   if (state.game === "nlh") state.hands = [[C("As"), C("Ah")], [C("Kd"), C("Kc")]];
   else if (state.game === "plo4") state.hands = [[C("As"), C("Ah"), C("Kd"), C("Qd")], [C("Js"), C("Ts"), C("9h"), C("8h")]];

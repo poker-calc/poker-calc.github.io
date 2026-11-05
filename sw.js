@@ -1,6 +1,6 @@
 // 一度開けば電波がなくても動くように、画面のファイルを端末に取っておく。
 // V は build_poker_calc_web.py が中身から作る(画面を直すと自動で変わり、古い画面が残らない)
-const V = "poker-calc-0e49835826";
+const V = "poker-calc-0d1f6c8213";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", e => {

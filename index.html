@@ -639,12 +639,13 @@ function renderAll() {
     head.appendChild(nm);
     const tools = document.createElement("span"); tools.className = "row";
     if (!isRange(p)) {
-      const clr = document.createElement("button"); clr.className = "btn"; clr.textContent = "外す";
+      const clr = document.createElement("button"); clr.className = "btn"; clr.textContent = "カードを外す";
       clr.onclick = () => { state.hands[p] = h.map(() => null); state.active = { kind: "p", p, i: 0 }; changed(); };
       tools.appendChild(clr);
     }
     if (state.hands.length > 2 && p > 0) {
-      const del = document.createElement("button"); del.className = "btn"; del.textContent = "消す";
+      // 2026-11-05 ユーザー「プレイヤーをへらせないの？」: 「外す」と「消す」の違いが分からないので、何をするボタンかを書く
+      const del = document.createElement("button"); del.className = "btn"; del.textContent = "この相手を消す";
       del.onclick = () => { for (const a of [state.hands, state.modes, state.rcfg, state.gridOpen, state.rinfoOpen, state.rpanel]) a.splice(p, 1); state.active = null; changed(); };
       tools.appendChild(del);
     }
@@ -1094,8 +1095,14 @@ function textInput(kind, p, size, label) {
     const cs = parseCards(inp.value);
     const others = new Set(); state.board.forEach(c => kind !== "b" && c != null && others.add(c));
     state.hands.forEach((h, q) => (kind === "b" || q !== p) && !isRange(q) && h.forEach(c => c != null && others.add(c)));
-    if (!cs || cs.length > size || new Set(cs).size !== cs.length || cs.some(c => others.has(c))) {
-      $("status").textContent = "カードが読めないか、ほかの場所と同じカードがあります。「AsKd」のように、数字(A K Q J T 9…)とマーク(s h d c)の2文字ずつで入れてください。";
+    // 読めない・多すぎる・重なっている、を分けて伝える(2026-11-05 どのカードが重なったか分からなかった)
+    const nm = c => RANKS[c >> 2] + SUIT_MARK[c & 3];
+    const dup = cs && (cs.find((c, i) => cs.indexOf(c) !== i) ?? cs.find(c => others.has(c)));
+    if (!cs || cs.length > size || dup != null) {
+      $("status").textContent = !cs ? "カードが読めません。「AsKd」のように、数字(A K Q J T 9…)とマーク(s h d c)の2文字ずつで入れてください。"
+        : cs.length > size ? `カードが多すぎます。ここに入るのは ${size}枚までです。`
+        : cs.indexOf(dup) !== cs.lastIndexOf(dup) ? `${nm(dup)} が2回書かれています。`
+        : `${nm(dup)} は、もうほかの場所に入っています。`;
       return;
     }
     const arr = Array.from({ length: size }, (_, i) => cs[i] ?? null);
@@ -1159,10 +1166,14 @@ function run() {
     state.results = { n, eq: job.eq, win: job.win, tie: job.tie, trials: job.trials };
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
     if (job.exact) {
-      $("status").textContent = `残りのカードの出方を全部(${job.total.toLocaleString()}通り)数えました${done ? "" : "…"}。`;
+      // 計算の途中は「です…。」のような文にならないよう、途中と終わりで文を分ける(2026-11-05)
+      $("status").textContent = done ? `残りのカードの出方を全部(${job.total.toLocaleString()}通り)数えました。`
+        : `残りのカードの出方(全部で ${job.total.toLocaleString()}通り)を数えています…`;
     } else {
       const e0 = job.eq[0] / Math.max(job.trials, 1), se = Math.sqrt(Math.max(e0 * (1 - e0), 0.0001) / Math.max(job.trials, 1));
-      $("status").textContent = `${hasRange ? "相手のレンジから手を引きながら、" : ""}ランダムに ${job.trials.toLocaleString()}回配りました(${secs}秒)。誤差はおよそ ±${(1.96 * se * 100).toFixed(1)}%です${done ? "" : "…"}。`
+      $("status").textContent = (done
+        ? `${hasRange ? "相手のレンジから手を引きながら、" : ""}ランダムに ${job.trials.toLocaleString()}回配りました(${secs}秒)。誤差はおよそ ±${(1.96 * se * 100).toFixed(1)}%です。`
+        : `ランダムに配って数えています(今 ${job.trials.toLocaleString()}回)…`)
         + (job.failed ? "レンジから手を引けなくなったので、途中で止めました。" : "") + (notes.length ? " " + notes.join(" ") : "");
     }
     renderResults();

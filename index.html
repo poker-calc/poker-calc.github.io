@@ -70,7 +70,9 @@ h1 { font-size: 1.3rem; margin: 0; text-wrap: balance }
 .picker { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: grid; gap: 4px; overflow-x: auto }
 .prow { display: grid; grid-template-columns: repeat(13, minmax(22px, 1fr)); gap: 3px; min-width: 300px }
 .pick { border: 1px solid var(--line); background: var(--card); border-radius: 6px; font: 700 .92rem var(--num); padding: 7px 0; cursor: pointer; text-align: center }
-.pick:disabled { background: var(--card-used); opacity: .35; cursor: default }
+.pick.used { background: var(--card-used); opacity: .35; cursor: default }
+.pickmsg { font-size: .9rem; font-weight: 700; color: var(--bad); margin-bottom: 6px }
+.pickmsg:empty { display: none }
 .hint { font-size: .85rem; color: var(--muted) }
 .txt { font: .9rem var(--num); padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); flex: 1 1 15em; width: auto; min-width: 0; max-width: 100%; margin-left: 4px }
 .table .txt { background: color-mix(in srgb, var(--felt-ink) 12%, transparent); color: var(--felt-ink); border-color: color-mix(in srgb, var(--felt-ink) 35%, transparent) }
@@ -155,6 +157,7 @@ h1 { font-size: 1.3rem; margin: 0; text-wrap: balance }
   <div class="status" id="status" aria-live="polite"></div>
 
   <section class="picker" aria-label="カードを選ぶ">
+    <div class="pickmsg" id="pickmsg" aria-live="polite"></div>
     <div id="picker"></div>
     <div class="hint" id="pickhint">黄色い枠の場所に、上のカードをタップして入れます。入れたカードは、その枠をタップすると外せます。カードを変えると、すぐに勝率を計算し直します。カードを入れない場所は、計算のたびにランダムに配ります。</div>
   </section>
@@ -668,9 +671,12 @@ function renderAll() {
     const row = document.createElement("div"); row.className = "prow";
     for (let r = 12; r >= 0; r--) {
       const c = r * 4 + s, b = document.createElement("button");
-      b.className = "pick s" + s; b.innerHTML = RANKS[r] + SUIT_MARK[s]; b.disabled = used.has(c);
-      b.setAttribute("aria-label", RANKS[r] + SUIT_MARK[s]);
-      b.onclick = () => put(c);
+      // 使っているカードも押せるようにして、押したら「どこに入っているか」を出す(2026-11-05 ユーザー「警告かなにかがでない」)
+      const isUsed = used.has(c);
+      b.className = "pick s" + s + (isUsed ? " used" : ""); b.innerHTML = RANKS[r] + SUIT_MARK[s];
+      b.setAttribute("aria-label", RANKS[r] + SUIT_MARK[s] + (isUsed ? "(使用中)" : ""));
+      if (isUsed) b.setAttribute("aria-disabled", "true");
+      b.onclick = () => isUsed ? warnUsed(c) : put(c);
       row.appendChild(b);
     }
     pk.appendChild(row);
@@ -1040,7 +1046,14 @@ function nextEmpty() {
   return null;
 }
 
+function warnUsed(c) {
+  const name = RANKS[c >> 2] + SUIT_MARK[c & 3];
+  const where = state.board.includes(c) ? "ボード" : pname(state.hands.findIndex((h, p) => !isRange(p) && h.includes(c))) + "の手札";
+  $("pickmsg").textContent = `${name} は、もう${where}に入っています。入れ直すときは、先にその枠を押して外してください。`;
+}
+
 function put(c) {
+  $("pickmsg").textContent = "";
   let a = state.active;
   if (!a || (a.kind === "p" && isRange(a.p))) a = state.active = nextEmpty();
   if (!a) return;
@@ -1052,7 +1065,7 @@ function put(c) {
 let runId = 0, autoTimer = null;
 // カードを変えたら少し待って自動で計算し直す(ボタンを押さなくてよい)
 function changed() {
-  state.results = null; runId++; $("status").textContent = ""; $("sharemsg").textContent = ""; render(); syncHash();
+  state.results = null; runId++; $("status").textContent = ""; $("sharemsg").textContent = ""; $("pickmsg").textContent = ""; render(); syncHash();
   clearTimeout(autoTimer); autoTimer = setTimeout(run, 250);
 }
 // レンジのスライダーやマスを動かした時: 全体は描き直さず、結果だけ消して計算し直す
